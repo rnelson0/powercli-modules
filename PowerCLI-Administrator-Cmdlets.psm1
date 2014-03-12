@@ -53,15 +53,11 @@ function Clone-VDPortgroup
    Get stats from a specified cluster
 .DESCRIPTION
    Collect a number of stats from a cluster, including RAM and p/vCPU counts and the resources available after 1 or 2 node failures.
-   Displays the statistics for both the cluster and per VMhost
+   Displays the statistics for both the cluster and per VMhost.
 
    Courtesy of Vamshi Meda (@medavamshi) via http://tenthirtyam.org/per-cluster-cpu-and-memory-utilization-and-capacity-metrics-with-powercli/
 .EXAMPLE
    Get-ClusterStats -Cluster Cluster1
-.EXAMPLE
-   Get-Cluster | Get-ClusterStats
-
-   This will show output from all clusters returned from 'Get-Cluster'
 #>
 function Get-ClusterStats
 {
@@ -82,99 +78,104 @@ function Get-ClusterStats
     }
     Process
     {
-        $Clustername = Get-Cluster $Cluster
-        $Clusters = Get-View -ViewType ComputeResource | ? Name -Like $clustername.Name
+        $ClusterName = Get-Cluster $Cluster
+        $Clusters = Get-View -ViewType ComputeResource | ? Name -Like $ClusterName.Name
         $Clusters | % {
-            $Cluste     = $_
-            $VMHostsView = $null
-            $VMHostsView = Get-View $Cluste.Host -Property Name, Hardware, Config
-            $VMss         = $Clustername | Get-VM
-            $HostCount        = ($VMHostsView | Measure-Object).Count
-            $VMCount          = 0 + ($VMss | Measure-Object).Count
-            $VMsPerHost       = [math]::Round(($VMCount/$HostCount), 1)
-            $vCPU             = 0 + ($VMss | Measure-Object -sum -Property NumCPU).Sum
-            $allocatedram      = 0 + ($VMss | Measure-Object -sum -Property memorygb).Sum
-            $avgrampervm      = [math]::Round(($allocatedram/$VMCount), 1)
-            $pCPUSocket       = ($VMHostsView | % { $_.Hardware.CPUInfo.NumCpuPackages } | Measure-Object -Sum).Sum
-            $TpCPUSocket     += $pCPUSocket
-            $pCPUCore         = ($VMHostsView | % { $_.Hardware.CPUInfo.NumCpuCores } | Measure-Object -Sum).Sum
-            $vCPUPerpCPUCore  = [math]::Round(($vCPU/$pCPUCore), 1)
-            $onenode =[math]::Round((Get-Cluster $cluster | Get-VMHost | Select -First 1 | Measure-Object -Property memorytotalGB -Sum).Sum)
-            $twonode =[math]::Round((Get-Cluster $cluster | Get-VMHost | Select -First 2 | measure-object -Property memorytotalGB -Sum).Sum)
-            $onenodepcpucores =[math]::Round((Get-Cluster $cluster | Get-VMHost | Select -First 1 | Measure-Object -Property numcpu -Sum).Sum)
-            $twonodepcpucores =[math]::Round((Get-Cluster $cluster | Get-VMHost | Select -First 2 | Measure-Object -Property numcpu -Sum).Sum)
-            $totalclusterpcores_failover1= $pcpucore-$onenodepcpucores
-            $totalclusterpcores_failover2= $pcpucore-$twonodepcpucores
-            $TotalClusterRAMGB =[math]::Round((Get-cluster $cluster | get-vmhost | % { $_ } | Measure-Object -property memorytotalGB -Sum).Sum)
-            $TotalClusterRAMFailoverOne = [math]::Round(($TotalClusterRAMGB-$onenode))
-            $TotalClusterRAMFailvoerTwo = [math]::Round(($TotalClusterRAMGB-$twonode))
-            $TotalClusterRAMusageGB =[math]::Round((Get-Cluster $cluster | Get-VMHost | % { $_ } | Measure-Object -Property memoryusageGB -Sum).Sum)
-            $TotalClusterRAMUsagePercent = [math]::Round(($TotalClusterRAMusageGB/$TotalClusterRAMGB)*100)
-            $TotalClusterRAMFreeGB = [math]::Round(($TotalClusterRAMGB-$TotalClusterRAMUsageGB))
-            $TotalClusterRAMReservedGB = [math]::Round(($TotalClusterRAMGB/100)*15)
-            $TotalClusterRAMAvailable = [math]::Round(($TotalClusterRAMFreeGB-$TotalClusterRAMReservedGB))
-            $TotalClusterRAMAvailable_FailoverOne = [math]::Round(($TotalClusterRAMAvailable-$onenode))
-            $TotalClusterRAMAvailable_failoverTwo = [math]::Round(($TotalClusterRAMAvailable-$twonode))
-            $TotalClustervcpuperpcore_FailoverOne = [math]::Round(($vCPU/$totalclusterpcores_failover1))
-            $TotalClustervcpuperpcore_failoverTwo = [math]::Round(($vCPU/$totalclusterpcores_failover2))
-            $newvmcount = [math]::Round(($TotalClusterRAMAvailable/$avgrampervm))
-            $newvmcount_failover1 = [math]::Round(($TotalClusterRAMAvailable_failoverone/$avgrampervm))
-            $newvmcount_failover2 = [math]::Round(($TotalClusterRAMAvailable_failovertwo/$avgrampervm))
+            $CurrentCluster               = $_
+            $VMHostsView                  = $null
+            $VMHostsView                  = Get-View $CurrentCluster.Host -Property Name, Hardware, Config
+            $VMs                          = $ClusterName | Get-VM
+            $HostCount                    = ($VMHostsView | Measure-Object).Count
+            $VMCount                      = ($VMs | Measure-Object).Count
+            $VMsPerHost                   = [math]::Round($VMCount / $HostCount, 1)
+            $vCPU                         = ($VMs | Measure-Object -sum -Property NumCPU).Sum
+            $allocatedRAM                 = ($VMs | Measure-Object -sum -Property MemoryGB).Sum
+            $AvgRAMPerVM                  = [math]::Round($AllocatedRAM / $VMCount, 1)
+            $pCPUSocket                   = ($VMHostsView | % { $_.Hardware.CPUInfo.NumCpuPackages } | Measure-Object -Sum).Sum
+            $pCPUCore                     = ($VMHostsView | % { $_.Hardware.CPUInfo.NumCpuCores } | Measure-Object -Sum).Sum
+            $vCPUPerpCPUCore              = [math]::Round($vCPU / $pCPUCore, 1)
+            $NodeOne                      = Get-Cluster $Cluster | Get-VMHost | Select -First 1
+            $NodeTwo                      = Get-Cluster $Cluster | Get-VMHost | Select -First 2
+            $NodeOneTotalGB               = [math]::Round(($NodeOne | Measure-Object -Property MemoryTotalGB -Sum).Sum)
+            $NodeTwoTotalGB               = [math]::Round(($NodeTwo | measure-object -Property MemoryTotalGB -Sum).Sum)
+            $NodeOnepCPUCores             = [math]::Round(($NodeOne | Measure-Object -Property NumCPU -Sum).Sum)
+            $NodeTwopCPUCores             = [math]::Round(($NodeTwo | Measure-Object -Property NumCPU -Sum).Sum)
+            $pCores_OneNodeFailover       = $pCPUCore - $NodeOnepCPUCores
+            $pCores_TwoNodeFailover       = $pCPUCore - $NodeTwopCPUCores
+            $RAMGB                        = [math]::Round((Get-Cluster $Cluster | get-vmhost | % { $_ } | Measure-Object -property MemoryTotalGB -Sum).Sum)
+            $RAM_OneNodeFailover          = [math]::Round($RAMGB - $NodeOneTotalGB)
+            $RAM_TwoNodeFailover          = [math]::Round($RAMGB - $NodeTwoTotalGB)
+            $RAMUsageGB                   = [math]::Round((Get-Cluster $Cluster | Get-VMHost | % { $_ } | Measure-Object -Property MemoryUsageGB -Sum).Sum)
+            $RAMUsagePercent              = [math]::Round(($RAMUsageGB / $RAMGB) * 100)
+            $RAMFreeGB                    = [math]::Round($RAMGB - $RAMUsageGB)
+            $RAMReservedGB                = [math]::Round(($RAMGB / 100) * 15)
+            $RAMAvailable                 = [math]::Round($RAMFreeGB - $RAMReservedGB)
+            $RAMAvailable_OneNodeFailover = [math]::Round($RAMAvailable - $NodeOneTotalGB)
+            $RAMAvailable_TwoNodeFailover = [math]::Round($RAMAvailable - $NodeTwoTotalGB)
+            $vCPUperpCore_OneNodeFailover = [math]::Round($vCPU / $pCores_OneNodeFailover)
+            $vCPUperpCore_TwoNodeFailover = [math]::Round($vCPU / $pCores_TwoNodeFailover)
+            $NewVMs                       = [math]::Round($RAMAvailable / $AvgRAMPerVM)
+            $NewVMs_OneNodeFailover       = [math]::Round($RAMAvailable_OneNodeFailover / $AvgRAMPerVM)
+            $NewVMs_TwoNodeFailover       = [math]::Round($RAMAvailable_TwoNodeFailover / $AvgRAMPerVM)
  
             New-Object PSObject |
-            Add-Member -PassThru NoteProperty "ClusterName"          $clustername.Name    |
-            Add-Member -PassThru NoteProperty "TotalClusterHostCount"          $HostCount    |
-            Add-Member -PassThru NoteProperty "TotalClusterVMCount"          $VMCount    |
-            Add-Member -PassThru NoteProperty "TotalClusterVM/Host"          $VMsPerHost    |
-            Add-Member -PassThru NoteProperty "TotalClusterpCPUSocket"          $TpCPUSocket   |
-            Add-Member -PassThru NoteProperty "TotalClusterpCPUCore"          $pCPUCore   |
-            Add-Member -PassThru NoteProperty "TotalClustervCPUCount"          $VCPU    |
-            Add-Member -PassThru NoteProperty "TotalClustervCPU/pCPUCore"          $vcpuperpcpucore  |
-            Add-Member -PassThru NoteProperty "TotalClustervCPU/pCPUCore After 1 Failover"          $TotalClustervcpuperpcore_FailoverOne  |
-            Add-Member -PassThru NoteProperty "TotalClustervCPU/pCPUCore After 2 Failvoer"          $TotalClustervcpuperpcore_Failovertwo  |
-            Add-Member -PassThru NoteProperty "TotalClusterRAMGB"          $TotalClusterRAMGB    |
-            Add-Member -PassThru NoteProperty "TotalClusterRAMGB_Failover1"          $TotalClusterRAMFailoverOne    |
-            Add-Member -PassThru NoteProperty "TotalClusterRAMGB_failover2"          $TotalClusterRAMFailvoerTwo    |
-            Add-Member -PassThru NoteProperty "TotalClusterRAMUSAGEPercent"          $TotalClusterRAMUsagePercent    |
-            Add-Member -PassThru NoteProperty "TotalClusterRAMUsageGB"     $TotalClusterRAMusageGB    |
-            Add-Member -PassThru NoteProperty "TotalClusterRAMFreeGB"      $TotalClusterRAMfreeGB    |
-            Add-Member -PassThru NoteProperty "TotalClusterRAMReservedGB(15%)"          $TotalClusterRAMReservedGB    |
-            Add-Member -PassThru NoteProperty "RAM Available for NEW VMs in GB"          $TotalClusterRAMAvailable    |
-            Add-Member -PassThru NoteProperty "RAM Available for NEW VMs in GB After 1 failover"          $TotalClusterRAMAvailable_FailoverOne    |
-            Add-Member -PassThru NoteProperty "RAM Available for NEW VMs in GB After 2 failover"          $TotalClusterRAMAvailable_FailoverTwo    |
-            Add-Member -PassThru NoteProperty "Allocated RAM per VM on an average"                          $avgrampervm    |
-            Add-Member -PassThru NoteProperty "NEW VM's that can be provisioned based on Average RAM per VM"                          $newvmcount    |
-            Add-Member -PassThru NoteProperty "NEW VM's that can be provisioned based on Average RAM per VM After 1 failover"          $newvmcount_failover1    |
-            Add-Member -PassThru NoteProperty "NEW VM's that can be provisioned basde on Average RAM per VM After 2 Failover"          $newvmcount_failover2   
+            Add-Member -PassThru NoteProperty "Cluster Name"                                       $ClusterName.Name             |
+            Add-Member -PassThru NoteProperty "Number of Hosts"                                    $HostCount                    |
+            Add-Member -PassThru NoteProperty "Number of VMs"                                      $VMCount                      |
+            Add-Member -PassThru NoteProperty "VMs Per Host"                                       $VMsPerHost                   |
+            Add-Member -PassThru NoteProperty "pCPUs (Socket)"                                     $pCPUSocket                   |
+            Add-Member -PassThru NoteProperty "pCPU (Core)"                                        $pCPUCore                     |
+            Add-Member -PassThru NoteProperty "vCPU Count"                                         $vCPU                         |
+            Add-Member -PassThru NoteProperty "vCPU/pCPU Core"                                     $vCPUperpCPUCore              |
+            Add-Member -PassThru NoteProperty "vCPU/pCPU Core (1 node failure)"                    $vCPUperpCore_OneNodeFailover |
+            Add-Member -PassThru NoteProperty "vCPU/pCPU Core (2 node failure)"                    $vCPUperpCore_TwoNodeFailover |
+            Add-Member -PassThru NoteProperty "RAM (GB)"                                           $RAMGB                        |
+            Add-Member -PassThru NoteProperty "RAM (1 node failure)"                               $RAM_OneNodeFailover          |
+            Add-Member -PassThru NoteProperty "RAM (2 node failure)"                               $RAM_TwoNodeFailover          |
+            Add-Member -PassThru NoteProperty "RAM Usage (%)"                                      $RAMUsagePercent              |
+            Add-Member -PassThru NoteProperty "RAM Usage (GB)"                                     $RAMUsageGB                   |
+            Add-Member -PassThru NoteProperty "RAM Free (GB)"                                      $RAMFreeGB                    |
+            Add-Member -PassThru NoteProperty "RAM Reserved (GB, 15%)"                             $RAMReservedGB                |
+            Add-Member -PassThru NoteProperty "RAM Available for NEW VMs (GB)"                     $RAMAvailable                 |
+            Add-Member -PassThru NoteProperty "RAM Available for NEW VMs (1 node failure)"         $RAMAvailable_OneNodeFailover |
+            Add-Member -PassThru NoteProperty "RAM Available for NEW VMs (2 node failure)"         $RAMAvailable_TwoNodeFailover |
+            Add-Member -PassThru NoteProperty "Average Allocated RAM/VM"                           $AvgRAMPerVM                  |
+            Add-Member -PassThru NoteProperty "Est. # of new VMs based on RAM/VM"                  $NewVMs                       |
+            Add-Member -PassThru NoteProperty "Est. # of new VMs based on RAM/VM (1 node failure)" $NewVMs_OneNodeFailover       |
+            Add-Member -PassThru NoteProperty "Est. # of new VMs based on RAM/VM (2 node failure)" $NewVMs_TwoNodeFailover   
         }
  
         Get-Cluster $Cluster | Get-VMHost | % {
-            $vmhost =$_
-            $VMHostView = $VMHost | Get-View
-            $VMHostModel      = ($VMHostsView | % { $_.Hardware.SystemInfo } | Group-Object Model | Sort -Descending Count | Select -First 1).Name
-            $VMs = $VMHost | Get-VM #| ? { $_.PowerState -eq "PoweredOn" }
-            $TotalRAMGB       = [math]::Round($vmhost.MemoryTotalGB)
-            $TotalRAMUsageGB       = [math]::Round($vmhost.MemoryUsageGB)
-            $TotalRAMfreeGB       = [math]::Round($TotalRAMGB-$TotalRAMUsageGB)
-            $PercRAMUsed     = [math]::Round(($TotalRAMUsageGB/$TotalRAMGB)*100)
-            $TotalRAMReservedFree   = [math]::Round(($TotalRAMGB/100)*15)
-            $TotalRAMAvailable   = [math]::Round(($TotalRAMfreegb-$totalramreservedfree))
+            $VMHost      = $_
+            $VMHostView  = $VMHost | Get-View
+            $VMHostModel = ($VMHostsView | % { $_.Hardware.SystemInfo } | Group-Object Model | Sort -Descending Count | Select -First 1).Name
+            $VMs         = $VMHost | Get-VM 
+            $RAMGB           = [math]::Round($VMHost.MemoryTotalGB)
+            $RAMUsageGB      = [math]::Round($VMHost.MemoryUsageGB)
+            $RAMFreeGB       = [math]::Round($RAMGB - $RAMUsageGB)
+            $RAMReservedFree = [math]::Round(($RAMGB / 100) * 15)
+            $RAMAvailable    = [math]::Round($RAMFreegb - $RAMReservedFree)
+            $PercentRAMUsed       = [math]::Round(($RAMUsageGB / $RAMGB) * 100)
+            $VMCount     = ($VMs | Measure-Object).Count
+            $CPUCount    = ($VMs | Measure-Object -Sum NumCPU).Sum
+            $CPUCores    = $VMHostView.Hardware.cpuinfo.NumCPUCores
+            $vCPUPerCore = $CPUCount / $CPUCores
 
             New-Object PSObject |
-            Add-Member -pass NoteProperty "VMhost"          $vmhost.Name    |
-            Add-Member -pass NoteProperty Model          $vmhostmodel    |
-            Add-Member -pass NoteProperty Sockets $VMHostView.Hardware.cpuinfo.NumCPUPackages   |
-            Add-Member -pass NoteProperty Cores   $VMHostView.Hardware.cpuinfo.NumCPUCores      |
-            Add-Member -pass NoteProperty Threads $VMHostView.Hardware.cpuinfo.NumCPUThreads    |
-            Add-Member -pass NoteProperty VMCount (($VMs | Measure-Object).Count)               |
-            Add-Member -pass NoteProperty vCPU    (0 + ($VMs | Measure-Object -Sum NumCPU).Sum) |
-            Add-Member -pass NoteProperty vCPUperCore ((0 + ($VMs | Measure-Object -Sum NumCPU).Sum)/$VMHostView.Hardware.cpuinfo.NumCPUCores) |
-            Add-Member -pass NoteProperty "RAMGB"           $TotalRAMGB            |
-            Add-Member -pass NoteProperty "RAMUsageGB"           $totalramusageGB            |
-            Add-Member -pass NoteProperty "RAMFreeGB"           $totalramfreeGB            |
-            Add-Member -pass NoteProperty "RAMUsage%"             $PercRAMused    |
-            Add-Member -pass NoteProperty "RAMReservedGB(15%)"           $totalramreservedfree            |
-            Add-Member -pass NoteProperty "RAM Available for NEW VMs in GB"           $totalramavailable
+            Add-Member -PassThru NoteProperty "VMhost"                   $VMHost.Name                                |
+            Add-Member -PassThru NoteProperty "Model"                    $VMHostModel                                |
+            Add-Member -PassThru NoteProperty "Sockets"                  $VMHostView.Hardware.cpuinfo.NumCPUPackages |
+            Add-Member -PassThru NoteProperty "Cores"                    $VMHostView.Hardware.cpuinfo.NumCPUCores    |
+            Add-Member -PassThru NoteProperty "Threads"                  $VMHostView.Hardware.cpuinfo.NumCPUThreads  |
+            Add-Member -PassThru NoteProperty "VMs"                      $VMCount                                    |
+            Add-Member -PassThru NoteProperty "vCPU"                     $CPUCount                                   |
+            Add-Member -PassThru NoteProperty "vCPU/Core"                $vCPUPerCore                                |
+            Add-Member -PassThru NoteProperty "RAM (GB)"                 $RAMGB                                      |
+            Add-Member -PassThru NoteProperty "RAM Usage (GB)"           $RAMUsageGB                                 |
+            Add-Member -PassThru NoteProperty "RAM Free (GB)"            $RAMFreeGB                                  |
+            Add-Member -PassThru NoteProperty "RAM Usage (%)"            $PercentRAMused                             |
+            Add-Member -PassThru NoteProperty "15% RAM Reservation (GB)" $RAMreservedFree                            |
+            Add-Member -PassThru NoteProperty "Available RAM (GB)"       $RAMavailable
         } | Sort VMhost | ft -AutoSize * | Out-String -Width 1024
     }
     End

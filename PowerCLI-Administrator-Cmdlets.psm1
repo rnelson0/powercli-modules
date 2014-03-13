@@ -118,31 +118,39 @@ function Get-ClusterStats
             $NewVMs_OneNodeFailover       = [math]::Round($RAMAvailable_OneNodeFailover / $AvgRAMPerVM)
             $NewVMs_TwoNodeFailover       = [math]::Round($RAMAvailable_TwoNodeFailover / $AvgRAMPerVM)
  
-            New-Object PSObject |
-            Add-Member -PassThru NoteProperty "Cluster Name"                                       $ClusterName.Name             |
-            Add-Member -PassThru NoteProperty "Number of Hosts"                                    $HostCount                    |
-            Add-Member -PassThru NoteProperty "Number of VMs"                                      $VMCount                      |
-            Add-Member -PassThru NoteProperty "VMs Per Host"                                       $VMsPerHost                   |
-            Add-Member -PassThru NoteProperty "pCPUs (Socket)"                                     $pCPUSocket                   |
-            Add-Member -PassThru NoteProperty "pCPU (Core)"                                        $pCPUCore                     |
-            Add-Member -PassThru NoteProperty "vCPU Count"                                         $vCPU                         |
-            Add-Member -PassThru NoteProperty "vCPU/pCPU Core"                                     $vCPUperpCPUCore              |
-            Add-Member -PassThru NoteProperty "vCPU/pCPU Core (1 node failure)"                    $vCPUperpCore_OneNodeFailover |
-            Add-Member -PassThru NoteProperty "vCPU/pCPU Core (2 node failure)"                    $vCPUperpCore_TwoNodeFailover |
-            Add-Member -PassThru NoteProperty "RAM (GB)"                                           $RAMGB                        |
-            Add-Member -PassThru NoteProperty "RAM (1 node failure)"                               $RAM_OneNodeFailover          |
-            Add-Member -PassThru NoteProperty "RAM (2 node failure)"                               $RAM_TwoNodeFailover          |
-            Add-Member -PassThru NoteProperty "RAM Usage (%)"                                      $RAMUsagePercent              |
-            Add-Member -PassThru NoteProperty "RAM Usage (GB)"                                     $RAMUsageGB                   |
-            Add-Member -PassThru NoteProperty "RAM Free (GB)"                                      $RAMFreeGB                    |
-            Add-Member -PassThru NoteProperty "RAM Reserved (GB, 15%)"                             $RAMReservedGB                |
-            Add-Member -PassThru NoteProperty "RAM Available for NEW VMs (GB)"                     $RAMAvailable                 |
-            Add-Member -PassThru NoteProperty "RAM Available for NEW VMs (1 node failure)"         $RAMAvailable_OneNodeFailover |
-            Add-Member -PassThru NoteProperty "RAM Available for NEW VMs (2 node failure)"         $RAMAvailable_TwoNodeFailover |
-            Add-Member -PassThru NoteProperty "Average Allocated RAM/VM"                           $AvgRAMPerVM                  |
-            Add-Member -PassThru NoteProperty "Est. # of new VMs based on RAM/VM"                  $NewVMs                       |
-            Add-Member -PassThru NoteProperty "Est. # of new VMs based on RAM/VM (1 node failure)" $NewVMs_OneNodeFailover       |
-            Add-Member -PassThru NoteProperty "Est. # of new VMs based on RAM/VM (2 node failure)" $NewVMs_TwoNodeFailover   
+            $ClusterInfo = "" | Select "Cluster Name", "Number of Hosts", "Number of VMs", "VMs per Host", "pCPUs (Socket)", "pCPU (Core)", "vCPU Count",
+                                       "vCPU/pCPU Core", "vCPU/pCPU Core (1 node failure)", "vCPU/pCPU Core (2 node failure)", "RAM (GB)", "RAM (1 node failure)",
+                                       "RAM (2 node failure)", "RAM Usage (%)", "RAM Usage (GB)", "RAM Free (GB)" , "RAM Reserved (GB, 15%)",
+                                       "RAM Available for NEW VMs (GB)", "RAM Available for NEW VMs (1 node failure)", "RAM Available for NEW VMs (2 node failure)",
+                                       "Average Allocated RAM/VM", "Est. # of new VMs based on RAM/VM", "Est. # of new VMs based on RAM/VM (1 node failure)",
+                                       "Est. # of new VMs based on RAM/VM (2 node failure)"
+
+
+            $ClusterInfo.'Cluster Name'                                       = $ClusterName.Name
+            $ClusterInfo.'Number of Hosts'                                    = $HostCount
+            $ClusterInfo.'Number of VMs'                                      = $VMCount
+            $ClusterInfo.'VMs Per Host'                                       = $VMsPerHost
+            $ClusterInfo.'pCPUs (Socket)'                                     = $pCPUSocket
+            $ClusterInfo.'pCPU (Core)'                                        = $pCPUCore
+            $ClusterInfo.'vCPU Count'                                         = $vCPU
+            $ClusterInfo.'vCPU/pCPU Core'                                     = $vCPUperpCPUCore
+            $ClusterInfo.'vCPU/pCPU Core (1 node failure)'                    = $vCPUperpCore_OneNodeFailover
+            $ClusterInfo.'vCPU/pCPU Core (2 node failure)'                    = $vCPUperpCore_TwoNodeFailover
+            $ClusterInfo.'RAM (GB)'                                           = $RAMGB
+            $ClusterInfo.'RAM (1 node failure)'                               = $RAM_OneNodeFailover
+            $ClusterInfo.'RAM (2 node failure)'                               = $RAM_TwoNodeFailover
+            $ClusterInfo.'RAM Usage (%)'                                      = $RAMUsagePercent
+            $ClusterInfo.'RAM Usage (GB)'                                     = $RAMUsageGB
+            $ClusterInfo.'RAM Free (GB)'                                      = $RAMFreeGB
+            $ClusterInfo.'RAM Reserved (GB, 15%)'                             = $RAMReservedGB
+            $ClusterInfo.'RAM Available for NEW VMs (GB)'                     = $RAMAvailable
+            $ClusterInfo.'RAM Available for NEW VMs (1 node failure)'         = $RAMAvailable_OneNodeFailover
+            $ClusterInfo.'RAM Available for NEW VMs (2 node failure)'         = $RAMAvailable_TwoNodeFailover
+            $ClusterInfo.'Average Allocated RAM/VM'                           = $AvgRAMPerVM
+            $ClusterInfo.'Est. # of new VMs based on RAM/VM'                  = $NewVMs
+            $ClusterInfo.'Est. # of new VMs based on RAM/VM (1 node failure)' = $NewVMs_OneNodeFailover
+            $ClusterInfo.'Est. # of new VMs based on RAM/VM (2 node failure)' = $NewVMs_TwoNodeFailover
+            $ClusterInfo
         }
  
         Get-Cluster $Cluster | Get-VMHost | % {
@@ -161,21 +169,23 @@ function Get-ClusterStats
             $CPUCores    = $VMHostView.Hardware.cpuinfo.NumCPUCores
             $vCPUPerCore = $CPUCount / $CPUCores
 
-            New-Object PSObject |
-            Add-Member -PassThru NoteProperty "VMhost"                   $VMHost.Name                                |
-            Add-Member -PassThru NoteProperty "Model"                    $VMHostModel                                |
-            Add-Member -PassThru NoteProperty "Sockets"                  $VMHostView.Hardware.cpuinfo.NumCPUPackages |
-            Add-Member -PassThru NoteProperty "Cores"                    $VMHostView.Hardware.cpuinfo.NumCPUCores    |
-            Add-Member -PassThru NoteProperty "Threads"                  $VMHostView.Hardware.cpuinfo.NumCPUThreads  |
-            Add-Member -PassThru NoteProperty "VMs"                      $VMCount                                    |
-            Add-Member -PassThru NoteProperty "vCPU"                     $CPUCount                                   |
-            Add-Member -PassThru NoteProperty "vCPU/Core"                $vCPUPerCore                                |
-            Add-Member -PassThru NoteProperty "RAM (GB)"                 $RAMGB                                      |
-            Add-Member -PassThru NoteProperty "RAM Usage (GB)"           $RAMUsageGB                                 |
-            Add-Member -PassThru NoteProperty "RAM Free (GB)"            $RAMFreeGB                                  |
-            Add-Member -PassThru NoteProperty "RAM Usage (%)"            $PercentRAMused                             |
-            Add-Member -PassThru NoteProperty "15% RAM Reservation (GB)" $RAMreservedFree                            |
-            Add-Member -PassThru NoteProperty "Available RAM (GB)"       $RAMavailable
+            $VMHostInfo = "" | Select 'VMhost', Model, Sockets, Cores, Threads, VMs, vCPU, vCPU/Code, "RAM (GB)", "RAM Usage (GB)",
+                                      "RAM Free (GB)", "RAM Usage (%)", "15% RAM Reservation (GB)", "Available RAM (GB)"
+            $VMHostInfo.VMhost = $VMHost.Name
+            $VMHostInfo.Model  = $VMhostModel
+            $VMHostInfo.Sockets = $VMHostView.Hardware.cpuinfo.NumCPUPackages
+            $VMHostInfo.Cores = $VMHostView.Hardware.cpuinfo.NumCPUCores
+            $VMHostInfo.Threads = $VMHostView.Hardware.cpuinfo.NumCPUThreads
+            $VMHostInfo.VMs = $VMCount
+            $VMHostInfo.vCPU = $CPUCount
+            $VMHostInfo.'vCPU/Code' = $vCPUPerCore
+            $VMHostInfo.'RAM (GB)' = $RAMGB
+            $VMHostInfo.'RAM Usage (GB)' = $RAMUsageGB
+            $VMHostInfo.'RAM Free (GB)' = $RAMFreeGB
+            $VMHostInfo.'Ram Usage (%)' = $PercentRAMused
+            $VMHostInfo.'15% RAM Reservation (GB)' = $RAMreservedFree
+            $VMHostInfo.'Available RAM (GB)' = $RAMavailable
+            $VMHostInfo
         } | Sort VMhost | ft -AutoSize * | Out-String -Width 1024
     }
     End

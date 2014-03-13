@@ -169,7 +169,7 @@ function Get-ClusterStats
             $CPUCores    = $VMHostView.Hardware.cpuinfo.NumCPUCores
             $vCPUPerCore = $CPUCount / $CPUCores
 
-            $VMHostInfo = "" | Select VMhost, Model, Sockets, Cores, Threads, VMs, vCPU, vCPU/Code, "RAM (GB)", "RAM Usage (GB)",
+            $VMHostInfo = "" | Select VMhost, Model, Sockets, Cores, Threads, VMs, vCPU, 'vCPU/Core', "RAM (GB)", "RAM Usage (GB)",
                                       "RAM Free (GB)", "RAM Usage (%)", "15% RAM Reservation (GB)", "Available RAM (GB)"
             $VMHostInfo.VMhost = $VMHost.Name
             $VMHostInfo.Model  = $VMhostModel
@@ -178,7 +178,7 @@ function Get-ClusterStats
             $VMHostInfo.Threads = $VMHostView.Hardware.cpuinfo.NumCPUThreads
             $VMHostInfo.VMs = $VMCount
             $VMHostInfo.vCPU = $CPUCount
-            $VMHostInfo.'vCPU/Code' = $vCPUPerCore
+            $VMHostInfo.'vCPU/Core' = $vCPUPerCore
             $VMHostInfo.'RAM (GB)' = $RAMGB
             $VMHostInfo.'RAM Usage (GB)' = $RAMUsageGB
             $VMHostInfo.'RAM Free (GB)' = $RAMFreeGB

@@ -1229,3 +1229,181 @@ function Edit-v10VMs
     {
     }
 }
+
+<#
+.Synopsis
+   Clone a VM using VAAI
+.DESCRIPTION
+   Clone a VM using VAAI a specified number of times for stress testing. Optionally, disable VAAI or enable logging of the IP received by a VM after booting.
+   Cloned VMs receive the name of the original plus the string "-clone-<number>".
+
+   The default number of clones created is 2.
+
+   Courtesy of @StevenPoitras and Andre Leibovici via http://myvirtualcloud.net/?p=5924
+.EXAMPLE
+   Clone-VM -Name Win7 -Cluster Lab -Count 400
+
+   Create 400 copies of a VM named "Win7" in the cluster "Lab"
+.EXAMPLE
+   Get-VM | Select -First 1 | Clone-VM -Cluster Lab -Count 100 -DisableVAAI -WaitForIPs
+
+   Using the Get-VM cmdlet, select the first VM returned and clone it 100 times without using VAAI into the cluster "Lab". Upon completion, log the IP each VM received.
+#>
+function Clone-VM
+{
+    [CmdletBinding()]
+    [OutputType([int])]
+	Param(
+        # Reference VM to clone
+        [Parameter(Mandatory=$true,
+                   ValueFromPipeline=$true,
+                   Position=0)]
+        $Name,
+
+        # Number of times to clone the VM
+        [int]
+        $Count = 2,
+
+		[Parameter(Mandatory=$True)]
+        [String]
+        $Cluster,
+
+        # Disable VAAI during cloning operation.
+		[switch]
+        $DisableVAAI,
+
+        # Log VM IPs after booted. Defaults to false (disabled)
+		[switch]
+        $WaitForIPs = $false
+	)
+    Begin
+    {
+		$Cluster = Get-Cluster | where {$_.name -eq $Cluster}
+		$Hosts = Get-VMHost -Location $Cluster
+		$SourceVM = Get-VM -Location $Cluster | where {$_.name -like $Name } | Get-View
+        $VMPattern = $SourceVM.Name + "-clone"
+		$CloneFolder = $SourceVM.parent
+		$CloneSpec = New-Object Vmware.Vim.VirtualMachineCloneSpec
+		$CloneSpec.Location = New-Object Vmware.Vim.VirtualMachineRelocateSpec
+		$CloneSpec.Location.Transform = [Vmware.Vim.VirtualMachineRelocateTransformation]::flat
+		if ($DisableVAAI) {
+			Write-Output "Cloning VM $Name without VAAI."
+			$CloneSpec.Location.DiskMoveType = [Vmware.Vim.VirtualMachineRelocateDiskMoveOptions]::createNewChildDiskBacking
+			$CloneSpec.Snapshot = $SourceVM.Snapshot.CurrentSnapshot
+		}
+		else {
+			Write-Output "Cloning VM $Name using VAAI."
+			$CloneSpec.Location.DiskMoveType = [Vmware.Vim.VirtualMachineRelocateDiskMoveOptions]::moveAllDiskBackingsAndAllowSharing
+		}
+
+		Write-Output "Creating $Count VMs from VM: $Name"
+
+		# Create VMs.
+		$Global:CreationStartTime = Get-Date
+		for($i=1; $i -le $Count; $i++) {
+			$NewVMName = "$VMPattern-$i"
+			$CloneSpec.Location.host = $Hosts[$i % $Hosts.count].Id
+            Write-Output "Starting clone operation for VM $i, $VMPattern-$i."
+			$SourceVM.CloneVM_Task( $CloneFolder, $NewVMName, $CloneSpec ) | Out-Null
+		}
+
+		# Wait for all VMs to finish being cloned.
+		$VMs = Get-VM -Location $Cluster -Name "$VMPattern-*"
+		while($VMs.count -lt $Count) {
+			$VMCount = $VMs.count
+			Write-Output "$VMCount of $Count clones created so far, waiting for all VMs to finish..."
+			Start-Sleep -s 5
+			$VMs = Get-VM -Location $Cluster -Name "$VMPattern-*"
+		}
+
+		Write-Output "Powering on VMs"
+		# Power on newly created VMs.
+		$Global:PowerOnStartTime = Get-Date
+		Start-VM -RunAsync "$VMPattern-*" | Out-Null
+
+		$BootedClones = New-Object System.Collections.ArrayList
+		#$waiting_clones = New-Object System.Collections.ArrayList
+		while($BootedClones.count -lt $Count) {
+			# Wait until all VMs are booted.
+			$Clones = Get-VM -Location $Cluster -Name "$VMPattern-*"
+			foreach ($Clone in $Clones){
+				if((-not $BootedClones.contains($clone.Name)) -and ($Clone.PowerState -eq "PoweredOn")) {
+					if($WaitForIPs) {
+						$IP = $Clone.Guest.IPAddress[0]
+						if ($IP){
+							Write-Output "$Clone.Name started with ip: $IP"
+						}
+					}
+					$BootedClones.add($Clone.Name) | Out-Null
+				}
+			}
+		}
+
+		$Global:TotalRuntime = $(Get-Date) - $Global:CreationStartTime
+		$Global:PowerOnRuntime = $(Get-Date) - $Global:PowerOnStartTime
+
+		Write-Output "Total time elapsed to boot $Count VMs: $Global:PowerOnRuntime"
+		Write-Output "Total time elapsed to clone and boot $Count VMs: $Global:TotalRuntime"
+    }
+    Process
+    {
+    }
+    End
+    {
+    }
+}
+
+<#
+.Synopsis
+   Remove VMs created by Clone-VM cmdlet
+.DESCRIPTION
+   Remove VMs created by Clone-VM cmdlet. Provide the name of the base VM used by Clone-VM, the '-clone-*' string will be appended automatically.
+
+   Courtesy of @StevenPoitras and Andre Leibovici via http://myvirtualcloud.net/?p=5924
+.EXAMPLE
+   Unclone-VM -Name "Test" -Count 2
+.EXAMPLE
+   Another example of how to use this cmdlet
+#>
+function Unclone-VM
+{
+    [CmdletBinding()]
+    [OutputType([int])]
+	Param(
+        # Reference VM to clone
+        [Parameter(Mandatory=$true,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=0)]
+        $Name,
+
+        # Disable confirmation of Stop-VM and Remove-VM commands
+        [switch]
+        $NoConfirmation
+	)
+    Begin
+    {
+        # For easier reading of the operations, we want the opposite of the $NoConfirmation switch
+        $Confirmation = ! $NoConfirmation
+
+        $Pattern = "$Name-clone-*"
+        $Count = (Get-VM -Location $Cluster -Name $Pattern).count
+        if ($Count -lt 1) {
+            Write-Output "No VMs were found matching the pattern '$Pattern'. Exiting."
+            Break;
+        }
+
+        Write-Output "Found $Count VMs matching the pattern '$Pattern'. Cleaning up clones."
+		Write-Output "Powering off VMs."
+		Stop-VM -RunAsync -Confirm:$Confirmation "$Name-*" | Out-Null
+		Write-Output "Deleting VMs."
+		Remove-VM -RunAsync -Confirm:$Confirmation -DeletePermanently:$true "$Name-*" | Out-Null
+		Write-Output "Cleanup complete."
+    }
+    Process
+    {
+    }
+    End
+    {
+    }
+}
+

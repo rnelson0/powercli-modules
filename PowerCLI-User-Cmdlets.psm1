@@ -190,3 +190,174 @@ function Get-VMConsoles
     {
     }
 }
+
+<#
+.Synopsis
+   Report on VMHost Name, Model, and BIOS.
+.DESCRIPTION
+   Gathers all VMHosts under the connected vCenter server and outputs each host's Name, Model and BIOS Version.
+   Optionally, generates CSV output in the specified directory.
+
+   Based on http://www.shogan.co.uk/vmware/three-powercli-scripts-for-information-gathering-vms-hosts-etc/ by Sean Duffy (@shogan85)
+EXAMPLE
+   Get-VMHostBIOSInfo
+.EXAMPLE
+   Get-VMHostBIOSInfo -CSV H:\
+#>
+function Get-VMHostBIOSInfo
+{
+    [CmdletBinding()]
+    [OutputType([System.Array])]
+    Param
+    (
+        # Directory to store optional CSV report in.
+        [string]
+        $CSV = ''
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+		$Report = @()
+		New-VIProperty -Name BIOSVersion -ObjectType VMHost -ValueFromExtensionProperty 'Hardware.BiosInfo.BiosVersion' -Force | Out-Null
+
+		$VMHosts = Get-VMHost | Select Name, Model, BIOSVersion
+		foreach ($VMHost in $VMHosts)
+		{
+			$Row = New-Object -Type PSObject -Property @{
+					Name = $VMHost.Name
+					Model = $VMHost.Model
+					BiosVersion = $VMHost.BIOSVersion
+				}
+			$Report += $Row
+		}
+
+		if ($CSV -ne '') {
+            $File = $CSV + 'VMHostInfo.csv'
+            $Report | Export-Csv -Path $File -NoTypeInformation
+        }
+		return $Report
+    }
+    End
+    {
+    }
+}
+
+<#
+.Synopsis
+   Report on VMHosts ESX(i) version info.
+.DESCRIPTION
+   Gathers all VMHosts under the connected vCenter server and outputs each host's Name, ESX(i) Version, and ESX(i) Build.
+   Optionally, generates CSV output in the specified directory.
+
+   Based on http://www.shogan.co.uk/vmware/three-powercli-scripts-for-information-gathering-vms-hosts-etc/ by Sean Duffy (@shogan85).
+EXAMPLE
+   Get-VMHostESXInfo
+.EXAMPLE
+   Get-VMHostESXInfo -CSV H:\
+#>
+function Get-VMHostESXInfo
+{
+    [CmdletBinding()]
+    [OutputType([System.Array])]
+    Param
+    (
+        # Directory to store optional CSV report in.
+        [string]
+        $CSV = ''
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+		$Report = @()
+		New-VIProperty -Name BuildVersion -ObjectType VMHost -ValueFromExtensionProperty 'Config.Product.Build' -Force | Out-Null
+
+		$VMHosts = Get-VMHost | Select Name, Version, BuildVersion | Sort Name
+		foreach ($VMHost in $VMHosts)
+		{
+			$Row = New-Object -Type PSObject -Property @{
+					Name = $VMHost.Name
+					Version = $VMHost.Version
+					Build = $VMHost.BuildVersion
+				}
+			$Report += $Row
+		}
+
+		if ($CSV -ne '') {
+            $File = $CSV + 'VMHostVersionInfo.csv'
+            $Report | Export-Csv -Path $File -NoTypeInformation
+        }
+		return $Report
+    }
+    End
+    {
+    }
+}
+
+<#
+.Synopsis
+   Get VM Hardware details 
+.DESCRIPTION
+   Get the VM Hardware details for all VMs in a specified datacenter.
+   Optionally, generates CSV output in the specified directory.
+
+   Based on http://www.shogan.co.uk/vmware/three-powercli-scripts-for-information-gathering-vms-hosts-etc/ by Sean Duffy (@shogan85)
+.EXAMPLE
+   Get-VMHardwareInfo -Datacenter 'lab'
+.EXAMPLE
+   Get-VMHardwareInfo -Datacenter 'lab' -CSV 'H:\'
+.EXAMPLE
+   Get-Datacenter | Get-VMHardwareInfo
+#>
+function Get-VMHardwareInfo
+{
+    [CmdletBinding()]
+    [OutputType([System.Array])]
+    Param
+    (
+        # Datacenter to run the report against.
+        [Parameter(Mandatory=$true,
+                   ValueFromPipeline=$true,
+                   Position=0)]
+        $DataCenter,
+
+        # Directory to store optional CSV report in.
+        [string]
+        $CSV = ''
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+		$Report = @()
+		New-VIProperty -Name HWVersion -ObjectType VirtualMachine -ValueFromExtensionProperty 'Config.Version' -Force | Out-Null
+
+		$VMs = Get-Datacenter $DataCenter | Get-VM | Select Name, HWVersion | Sort Name
+
+		foreach ($VM in $VMs)
+		{
+			$Row = New-Object -Type PSObject -Property @{
+					Name = $VM.Name
+					HWVersion = $VM.HWVersion
+				}
+			$Report += $Row
+		}
+        
+        if ($CSV -ne '') {
+            $File = $CSV + 'VMHardwareInfo-' + $DataCenter + '.csv'
+		    $Report | Export-Csv -Path $File -NoTypeInformation
+        }
+		return $Report
+    }
+    End
+    {
+    }
+}
+

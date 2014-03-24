@@ -199,7 +199,7 @@ function Get-ClusterStats
 .DESCRIPTION
    Provide an alternative GUI to editing VMs using v10 virtual hardware if the vSphere Web Client is unavailable
 
-   Courtesy of @HostileCoding via https://github.com/HostileCoding/PowerCLI/blob/master/Edit%20hw%20v10%20VMs.ps1
+   Courtesy of @HostileCoding via http://hostilecoding.blogspot.com/2014/03/vmware-powercli-gui-to-edit-vm-hardware.html
 .EXAMPLE
    Edit-v10VMs
 #>

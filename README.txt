@@ -12,3 +12,9 @@ To upgrade to a new version:
     Copy-Module Copy-Module.psm1 -Overwrite
     Copy-Module PowerCLI-Administrator-Cmdlets.psm1 -Overwrite
     Copy-Module PowerCLI-User-Cmdlets.psm1 -Overwrite
+
+To list the cmdlets provided:
+
+    Get-Command -Module PowerCLI-Administrator-Cmdlets
+    Get-Command -Module PowerCLI-User-Cmdlets
+

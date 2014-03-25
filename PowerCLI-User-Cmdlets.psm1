@@ -361,3 +361,107 @@ function Get-VMHardwareInfo
     }
 }
 
+<#
+.Synopsis
+   Provide a Google Chart of VM resource usage on a VMHost
+.DESCRIPTION
+   Create a Google Chart of VM resource usage on a VMHost and display it in the user's browser. A per-VMhost output file is saved for future reference.
+
+   Based on http://hostilecoding.blogspot.com/2014/03/vmware-vm-stats-using-powercli-and.html by @HostileCoding
+.EXAMPLE
+   Get-VMHostGoogleChart -VMHost esxi -FileLocation 'H:\'
+.EXAMPLE
+   Get-VMHostGoogleChart -VMHost esxi -FileLocation 'H:\' -Stat 'disk.usage.average'
+.EXAMPLE
+   Get-VMHost | Get-VMHostGoogleChart -FileLocation 'H:\'
+#>
+function Get-VMHostGoogleChart
+{
+    [CmdletBinding()]
+    [OutputType([int])]
+    Param
+    (
+        # VMHost to chart. Name must be as it appears in the vCenter inventory, or on the VMHost itself.
+        [Parameter(Mandatory=$true,
+                   ValueFromPipeline=$true,
+                   Position=0)]
+        $VMHost,
+
+        # Location to save HTML output.
+        [Parameter(Mandatory=$true)]
+        [string]
+        $FileLocation,
+
+        # Stat to measure.
+        #
+        # Available stats:
+        #
+        #     cpu.usage.average
+        #     cpu.usagemhz.average
+        #     mem.usage.average     * Default
+        #     disk.usage.average
+        #     net.usage.average
+        [string]
+        $Stat = "mem.usage.average"
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        $HtmlHeader = @"
+<html>
+<head>
+<script type="text/javascript" src="https://www.google.com/jsapi"></script>
+<script type="text/javascript">
+google.load("visualization", "1", {packages:["corechart"]});
+google.setOnLoadCallback(drawChart);
+function drawChart() {
+var data = google.visualization.arrayToDataTable([
+//What we are measuring
+['Virtual Machine', 'Average Usage'],
+
+"@
+
+        $VMs = Get-VMHost -Name $VMHost | Get-VM | Where-Object PowerState -match "PoweredOn" #Retrieves all powered on VMs from a specific host
+         
+        foreach ($VM in $VMs) {
+            $Value = Get-Stat -Entity $VM.Name -Stat $Stat -Start (Get-Date).AddHours(-24) -MaxSamples (10) -IntervalMins 10 | Measure-Object Value -Average
+            $Data += "['$VM', $($Value.Average)],"
+        }
+         
+        $HtmlFooter = @"
+
+]);
+
+var options = {
+title: '$Stat', //Chart Title
+pieHole: 0.4, //Option regarding this specific kind of chart
+};
+var chart = new google.visualization.PieChart(document.getElementById('donutchart'));
+chart.draw(data, options);
+}
+</script>
+</head>
+<body>
+<div id='title'>PowerCLI Google Charts</div>$br<div id='subtitle'>Report generated: $(Get-Date)</div>
+<div id="box1">
+<div id='boxheader'>$Stat</div>
+<div id='boxcontent'>
+<div id="donutchart" style="width: 900px; height: 500px;"></div>
+</div>
+</div>
+</body>
+</html>
+"@
+         
+        # Generate the HTML file
+        $FileName = $FileLocation + '\' + $VMHost + '.' + $stat + '.html'
+        $HtmlHeader + $Data + $HtmlFooter | Out-File $FileName
+        Start-Process $FileName
+    }
+    End
+    {
+    }
+}

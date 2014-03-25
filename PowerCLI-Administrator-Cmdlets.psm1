@@ -1407,3 +1407,111 @@ function Unclone-VM
     }
 }
 
+<#
+.Synopsis
+   Deploy VMs based on a specified Template
+.DESCRIPTION
+   Using a specified Template, deploy a number of VMs using sequential IP addresses. Requires an existing 
+   OSCustomizationSpec of the correct OS type that will be customized per Clone. The Spec should include
+   correct DNS settings.
+
+   Based on http://pelicanohintsandtips.wordpress.com/2014/03/13/creating-multiple-virtual-machines-with-powercli/
+.EXAMPLE
+   Deploy-Template -Template CentOS-Template -StartingIP "192.168.0.10" -Netmask "255.255.255.0" -DefaultGateway "192.168.0.1"
+   -Number 5 -Prefix "CentOS-Test" -Folder "CentOS-Test" -Datastore "Datastore1" -Cluster "Lab" -OSCustomizationSpec "Windows Static"
+.EXAMPLE
+   Get-Template | Select -First 1 | Deploy-Template -StartingIP "192.168.0.10" -Netmask "255.255.255.0" -DefaultGateway "192.168.0.1"
+   -Number 5 -Prefix "CentOS-Test" -Folder "CentOS-Test" -Datastore "Datastore1" -Cluster "Lab" -OSCustomizationSpec "Windows Static"
+#>
+function Deploy-Template
+{
+    [CmdletBinding()]
+    [OutputType([int])]
+    Param
+    (
+        # Template the deployed VM is based on
+        [Parameter(Mandatory=$true,
+                   ValueFromPipeline=$true,
+                   Position=0)]
+        $Template,
+
+        # Param2 help description
+        [Parameter(Mandatory=$true)]
+        [string]
+        $StartingIP,
+		
+		# Netmask in A.B.C.D notation
+        [Parameter(Mandatory=$true)]
+		[string]
+		$Netmask,
+		
+		# Default Gateway IP
+        [Parameter(Mandatory=$true)]
+		[string]
+		$DefaultGateway,
+		
+		# Number of VMs to deploy from the template VM
+        [Parameter(Mandatory=$true)]
+		[int]
+		$Number,
+		
+		# Prefix of the newly created VMs
+        [Parameter(Mandatory=$true)]
+		[string]
+		$Prefix,
+		
+		# Folder on which VMs will be deployed
+        [Parameter(Mandatory=$true)]
+		[string]
+		$Folder,
+		
+		# Datastore on which VMs will be deployed
+        [Parameter(Mandatory=$true)]
+		[string]
+		$Datastore,
+		
+		# Cluster on which VMs will be deployed
+        [Parameter(Mandatory=$true)]
+		[string]
+		$Cluster,
+		
+		# OS Customization Specification name
+        [Parameter(Mandatory=$true)]
+		[string]
+		$OSCustomizationSpec
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        # Deploy VMs
+        $IP = $StartingIP
+        For ($Count=1; $Count -le $Number; $Count++) {
+			$Name = $Prefix + $Count
+            Get-OSCustomizationSpec -Name $OSCustomizationSpec | New-OSCustomizationSpec -Name $Name -Type NonPersistent | Out-Null
+			Get-OSCustomizationNICMapping -OSCustomizationSpec $Name | Set-OSCustomizationNICMapping -IPMode UseStaticIP -IPAddress $IP -SubNetMask $Netmask -DefaultGateway $DefaultGateway | Out-Null
+            New-VM -Name $Name -Template $Template -Datastore $Datastore -ResourcePool $Cluster -Location $Folder -OSCustomizationSpec $Name -RunAsync | Out-Null
+            $NextIP = $IP.Split(“.”)
+            $NextIP[3] = [int]$NextIP[3]+1
+            $IP = $NextIP -Join“.”
+        }
+
+        # Sleep for a short period to ensure tasks have time to start
+        Start-Sleep -s 10
+
+        # Start VMs
+        For ($Count=1; $Count -le $Number; $Count++) {
+            $Name = $Prefix + $Count
+            While ((Get-VM $Name).Version -eq "Unknown") {
+				Write-Output “Waiting to start $Name”
+                Start-Sleep -s 10
+			}
+            Start-VM $Name
+        }
+	}
+    End
+    {
+    }
+}

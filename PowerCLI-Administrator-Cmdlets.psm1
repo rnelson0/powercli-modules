@@ -1478,7 +1478,12 @@ function Deploy-Template
 		# OS Customization Specification name
         [Parameter(Mandatory=$true)]
 		[string]
-		$OSCustomizationSpec
+		$OSCustomizationSpec,
+
+        # DNS server(s). Only required for Windows Servers
+        [System.Array]
+        $DNS
+
     )
 
     Begin
@@ -1491,7 +1496,12 @@ function Deploy-Template
         For ($Count=1; $Count -le $Number; $Count++) {
 			$Name = $Prefix + $Count
             Get-OSCustomizationSpec -Name $OSCustomizationSpec | New-OSCustomizationSpec -Name $Name -Type NonPersistent | Out-Null
-			Get-OSCustomizationNICMapping -OSCustomizationSpec $Name | Set-OSCustomizationNICMapping -IPMode UseStaticIP -IPAddress $IP -SubNetMask $Netmask -DefaultGateway $DefaultGateway | Out-Null
+            if ($DNS -ne $null) {
+    			Get-OSCustomizationNICMapping -OSCustomizationSpec $Name | Set-OSCustomizationNICMapping -IPMode UseStaticIP -IPAddress $IP -SubNetMask $Netmask -DefaultGateway $DefaultGateway -Dns $DNS | Out-Null
+            }
+            else {
+    			Get-OSCustomizationNICMapping -OSCustomizationSpec $Name | Set-OSCustomizationNICMapping -IPMode UseStaticIP -IPAddress $IP -SubNetMask $Netmask -DefaultGateway $DefaultGateway | Out-Null
+            }
             New-VM -Name $Name -Template $Template -Datastore $Datastore -ResourcePool $Cluster -Location $Folder -OSCustomizationSpec $Name -RunAsync | Out-Null
             $NextIP = $IP.Split(“.”)
             $NextIP[3] = [int]$NextIP[3]+1

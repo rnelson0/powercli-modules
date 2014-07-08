@@ -1599,7 +1599,7 @@ function Send-SnapshotReports
 
     Begin
     {
-        Add-PSSnapin VMware.VimAutomation.Core
+        Add-PSSnapin VMware.VimAutomation.Core -ea "SilentlyContinue"
     }
     Process
     {

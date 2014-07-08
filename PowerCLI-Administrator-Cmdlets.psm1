@@ -1525,3 +1525,196 @@ function Deploy-Template
     {
     }
 }
+
+<#
+.Synopsis
+   Email report of outstanding snapshots
+.DESCRIPTION
+   For snapshots that are over the specified $Retention period, email the owner or $MailDefault to clean up their snapshots.
+
+   Note that there is a limit of 32 event collectors allowed. If you cancel this cmdlet while running, you may exhaust this
+   limit and you will need to restart your PowerShell instance to run it again.
+.EXAMPLE
+   Send-SnapshotReports -MailFrom you@example.com -MailDefault default@example.com -SMTPRelay localhost
+
+   Using the curently connected vSphere server, sends mail from you@example.com to default@example.com, using localhost as a relay, for snapshots over the default
+   retention age of 14 days. Mail will be sent using 'localhost' as the relay. The default retention timeframe is 14 days, only snapshots over this age will generate emails.
+
+.EXAMPLE
+   Send-SnapshotReports -MailFrom you@example.com -MailDefault default.example.com -LookupOwner -SMTPrelay smtp.example.com -Retention 3
+
+   Using the curently connected vSphere server, sends mail from you@example.com to either default@example.com or the snapshot owner, using smtp.example.com as a relay,
+   for snapshots over the retention age of 3 days. Ownership of snapshots is determined by correlating the vSphere SSO username with Active Directory. The PowerCLI
+   host must be in the same domain for this to work (or a domain that happens to have the same email on record for the username).
+.EXAMPLE
+   Send-SnapshotReports -vSphereServer esxi -Credential $vSphereCredential -MailFrom you@example.com -MailDefault default.example.com -LookupOwner -SMTPrelay smtp.example.com -Retention 3
+
+   Connects to the vSphereServer of 'esxi', sends mail from you@example.com to either default@example.com or the snapshot owner, using smtp.example.com as a relay,
+   for snapshots over the retention age of 3 days. Ownership of snapshots is determined by correlating the vSphere SSO username with Active Directory. The PowerCLI
+   host must be in the same domain for this to work (or a domain that happens to have the same email on record for the username).
+
+   The additional $Credential provided is ideal for unattended operations, where there is no interactive shell available. Note that when used interactively, this
+   flag will connect to the vSphere server before it begins and disconnect when it is done.
+#>
+function Send-SnapshotReports
+{
+    Param
+    (
+        # vSphere server hostname or address. This can be an ESXi host or a vCenter host.
+        [Parameter(ValueFromPipeline=$true,
+                   ValueFromPipelineByPropertyName=$true, 
+                   ValueFromRemainingArguments=$false, 
+                   Position=0,
+                   ParameterSetName='vSphere Server')]
+        [ValidateNotNull()]
+        [ValidateNotNullOrEmpty()]
+        [Alias("host")] 
+        [Alias("vcenter")]
+        $vSphereServer = "vcenter",
+
+        # Param2 help description
+        [Parameter(Mandatory=$true)]
+        [string]
+        $MailFrom,
+
+        # Default email address for Snapshots with no creator
+        [Parameter(Mandatory=$true)]
+        [String]
+        $MailDefault,
+
+        # SMTP Mail Relay
+        [Parameter(Mandatory=$true)]
+        $SMTPRelay,
+
+        # Attempt to send emails to the designated owner, based on Active Directory/SSO correlation
+        [switch]
+        $LookupOwner = $false,
+
+        # Retention timeframe, in days
+        $Retention = 14,
+
+        # Credential to use for unattended operation
+        $Credential
+    )
+
+    Begin
+    {
+        Add-PSSnapin VMware.VimAutomation.Core
+    }
+    Process
+    {
+        function Find-OwnerEmail ($Username) {
+            $MailDestination = $MailDefault
+            if (($Username -ne "Unknown Owner") -and ($LookupOwner))
+            {
+                $User = (($Username.split("\"))[1])
+                $Root = [ADSI]""
+                $Filter = ("(&(objectCategory=user)(samAccountName=$User))")
+                $DS = new-object system.DirectoryServices.DirectorySearcher($Root, $Filter)
+                $DS.PageSize = 1000
+                $MailDestination = ($DS.FindOne()).Properties.mail
+                Write-Debug "Found an email target of '$MailDestination' for '$Username'."
+            }
+            return $MailDestination
+        }
+
+        function Get-SnapshotTree {
+            param($Tree, $Target)
+
+            $Found = $null
+            foreach($Elem in $Tree){
+                if($Elem.Snapshot.Value -eq $Target.Value){
+                    $Found = $Elem
+                    continue
+                }
+            }
+            if($Found -eq $null -and $Elem.ChildSnapshotList -ne $null){
+                $Found = Get-SnapshotTree $Elem.ChildSnapshotList $Target
+            }
+
+            return $Found
+        }
+
+        function Get-SnapshotInfo ($Snap) {
+        	$GuestName = $Snap.VM	# The name of the guest
+            $Result = $null
+            $SnapshotInfo = $null
+
+            Write-Debug "Getting snapshot info for VM $($GuestName):"
+            $TaskNumber = 999		# Windowsize of the Task collector
+
+            $TaskMgr = Get-View TaskManager
+
+            $Filter = New-Object VMware.Vim.TaskFilterSpec
+            $Filter.Time = New-Object VMware.Vim.TaskFilterSpecByTime
+            $Filter.Time.beginTime = (($Snap.Created).AddSeconds(-5))
+            $Filter.Time.timeType = "startedTime"
+
+            $CollectionImpl = Get-View ($TaskMgr.CreateCollectorForTasks($Filter))
+
+            $Dummy = $CollectionImpl.RewindCollector
+            $Collection = $CollectionImpl.ReadNextTasks($TaskNumber)
+            while($Result -eq $null -and $Collection -ne $null){
+                $Collection | where {$_.DescriptionId -eq "VirtualMachine.createSnapshot" -and $_.State -eq "success" -and $_.EntityName -eq $GuestName} | %{
+                    $Result = $_.Reason.UserName
+                    Write-Debug "Found owner '$Result' for this snapshot."
+                }
+                $collection = $collectionImpl.ReadNextTasks($TaskNumber)
+            }
+	        $CollectionImpl.DestroyCollector()
+
+            # Get the guest's snapshots and add the user
+            $Snap | % {
+                $SnapshotInfo = $_
+                $SnapshotInfo | Add-Member -MemberType NoteProperty -Name Creator -Value $Result -Force
+            }
+            if ($SnapshotInfo.Creator -eq $null) {
+                $SnapshotInfo.Creator = "Unknown Owner"
+                Write-Debug "The owner could not be identified and is set to '$($SnapshotInfo.Creator)'."
+            }
+            return $SnapshotInfo
+        }
+
+        Function Send-SnapshotMail ($MailTo, $Snapshot) {
+            $Subject = "Snapshot Reminder"
+
+            $Body = @"
+This is a reminder that you have a snapshot active for over $Retention days.
+
+VM Name: $($Snapshot.VM)
+Snapshot Name: $($Snapshot.Name)
+Description: $($Snapshot.Description)
+Created on: $($Snapshot.Created)
+Created by: $($Snapshot.Creator)
+"@
+
+            Write-Debug "Attempting to email '$MailTo' about VM '$($Snapshot.VM)' snapshot '$($Snapshot.Name)', from '$MailFrom'."
+            Send-MailMessage -To $MailTo -From $MailFrom -Subject $Subject -Body $Body -SmtpServer $SMTPRelay
+        }
+
+
+        # Main()
+        if ($Credential) {
+            Connect-VIServer $vSphereServer -Credential $Credential
+        }
+
+        $Snapshots = Get-VM | Get-Snapshot | Where {$_.Created -lt ((Get-Date).AddDays(-$Retention))}
+
+        foreach ($Snap in $Snapshots) {
+            $SnapshotInfo = Get-SnapshotInfo $Snap
+            $MailTo = Find-OwnerEmail $SnapshotInfo.Creator
+            Send-SnapshotMail $MailTo $SnapshotInfo
+        }
+
+        if (($Snapshots | Measure).Count -eq 0) {
+            Write-Output "No snapshots older than $Retention days were found."
+        }
+
+        if ($Credential) {
+            Disconnect-VIServer $vSphereServer -Confirm:$false
+        }
+    }
+    End
+    {
+    }
+}

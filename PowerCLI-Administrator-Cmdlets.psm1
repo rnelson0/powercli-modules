@@ -1719,7 +1719,6 @@ Created by: $($Snapshot.Creator)
 
         foreach ($Snap in $Snapshots) {
             $SnapshotInfo = Get-SnapshotExtra $Snap
-            $SnapshotInfo | Select *
             $MailTo = Find-OwnerEmail $SnapshotInfo.Creator
             Send-SnapshotMail $MailTo $SnapshotInfo
         }

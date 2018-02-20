@@ -1,4 +1,4 @@
-﻿<#
+<#
 .Synopsis
    Create a new VDPortgroup based on an existing VDPortgroup
 .DESCRIPTION
@@ -1605,8 +1605,7 @@ function Send-SnapshotReports
     {
         function Find-OwnerEmail ($Username) {
             $MailDestination = $MailDefault
-            if (($Username -ne "Unknown Owner") -and ($LookupOwner))
-            {
+            if (($Username -ne "Unknown Owner") -and ($LookupOwner)) {
                 $User = (($Username.split("\"))[1])
                 $Root = [ADSI]""
                 $Filter = ("(&(objectCategory=user)(samAccountName=$User))")
@@ -1615,64 +1614,78 @@ function Send-SnapshotReports
                 $MailDestination = ($DS.FindOne()).Properties.mail
                 Write-Debug "Found an email target of '$MailDestination' for '$Username'."
             }
+            else {
+                Write-Debug "Using default destination '$MailDefault'."
+            }
             return $MailDestination
         }
 
         function Get-SnapshotTree {
-            param($Tree, $Target)
+    	    param($tree, $target)
 
-            $Found = $null
-            foreach($Elem in $Tree){
-                if($Elem.Snapshot.Value -eq $Target.Value){
-                    $Found = $Elem
-                    continue
-                }
-            }
-            if($Found -eq $null -and $Elem.ChildSnapshotList -ne $null){
-                $Found = Get-SnapshotTree $Elem.ChildSnapshotList $Target
-            }
+	        $found = $null
+	        foreach($elem in $tree){
+    		    if($elem.Snapshot.Value -eq $target.Value){
+		    	    $found = $elem
+	    		    continue
+    		    }
+	        }
+	        if($found -eq $null -and $elem.ChildSnapshotList -ne $null){
+    		    $found = Get-SnapshotTree $elem.ChildSnapshotList $target
+    	    }
 
-            return $Found
+    	    return $found
         }
 
-        function Get-SnapshotInfo ($Snap) {
-        	$GuestName = $Snap.VM	# The name of the guest
-            $Result = $null
-            $SnapshotInfo = $null
+        function Get-SnapshotExtra ($snap) {
+            $guestName = $snap.VM # The name of the guest
+            $tasknumber = 999     # Window size of the Task collector
+            $taskMgr = Get-View TaskManager
 
-            Write-Debug "Getting snapshot info for VM $($GuestName):"
-            $TaskNumber = 999		# Windowsize of the Task collector
+            # Create hash table. Each entry is a create snapshot task
+            $report = @{}
 
-            $TaskMgr = Get-View TaskManager
+            $filter = New-Object VMware.Vim.TaskFilterSpec
+            $filter.Time = New-Object VMware.Vim.TaskFilterSpecByTime
+            $filter.Time.beginTime = (($snap.Created).AddDays(-$Retention))
+            $filter.Time.timeType = "startedTime"
+            # Added filter to only view for the selected VM entity. Massive speed up.
+            # Entity name check could be removed in line 91.
+            $filter.Entity = New-Object VMware.Vim.TaskFilterSpecByEntity
+            $filter.Entity.Entity = $snap.VM.ExtensionData.MoRef
 
-            $Filter = New-Object VMware.Vim.TaskFilterSpec
-            $Filter.Time = New-Object VMware.Vim.TaskFilterSpecByTime
-            $Filter.Time.beginTime = (($Snap.Created).AddSeconds(-5))
-            $Filter.Time.timeType = "startedTime"
+            $collectionImpl = Get-View ($taskMgr.CreateCollectorForTasks($filter))
 
-            $CollectionImpl = Get-View ($TaskMgr.CreateCollectorForTasks($Filter))
-
-            $Dummy = $CollectionImpl.RewindCollector
-            $Collection = $CollectionImpl.ReadNextTasks($TaskNumber)
-            while($Result -eq $null -and $Collection -ne $null){
-                $Collection | where {$_.DescriptionId -eq "VirtualMachine.createSnapshot" -and $_.State -eq "success" -and $_.EntityName -eq $GuestName} | %{
-                    $Result = $_.Reason.UserName
-                    Write-Debug "Found owner '$Result' for this snapshot."
+            $dummy = $collectionImpl.RewindCollector
+            $collection = $collectionImpl.ReadNextTasks($tasknumber)
+            while($collection -ne $null){
+                $collection | Where-Object {$_.DescriptionId -eq "VirtualMachine.createSnapshot" -and $_.State -eq "success" -and $_.EntityName -eq $guestName} | Foreach-Object {
+                    $row = New-Object PsObject
+                    $row | Add-Member -MemberType NoteProperty -Name User -Value $_.Reason.UserName
+                    $vm = Get-View $_.Entity
+                    if($vm -ne $null){ 
+                        $snapshot = Get-SnapshotTree $vm.Snapshot.RootSnapshotList $_.Result
+                        if($snapshot -ne $null){
+                            $key = $_.EntityName + "&" + ($snapshot.CreateTime.ToString())
+                            $report[$key] = $row
+                         }
+                    }
                 }
-                $collection = $collectionImpl.ReadNextTasks($TaskNumber)
+                $collection = $collectionImpl.ReadNextTasks($tasknumber)
             }
-	        $CollectionImpl.DestroyCollector()
+            $collectionImpl.DestroyCollector()
 
             # Get the guest's snapshots and add the user
-            $Snap | % {
-                $SnapshotInfo = $_
-                $SnapshotInfo | Add-Member -MemberType NoteProperty -Name Creator -Value $Result -Force
+            $snapshotsExtra = $snap | % {
+                $key = $_.vm.Name + "&" + ($_.Created.ToUniversalTime().ToString())
+                $str = $report | Out-String
+                if($report.ContainsKey($key)){
+                    $_ | Add-Member -MemberType NoteProperty -Name Creator -Value $report[$key].User
+                }
+                $_
             }
-            if ($SnapshotInfo.Creator -eq $null) {
-                $SnapshotInfo.Creator = "Unknown Owner"
-                Write-Debug "The owner could not be identified and is set to '$($SnapshotInfo.Creator)'."
-            }
-            return $SnapshotInfo
+            
+            return $snapshotsExtra
         }
 
         Function Send-SnapshotMail ($MailTo, $Snapshot) {
@@ -1689,6 +1702,10 @@ Created by: $($Snapshot.Creator)
 "@
 
             Write-Debug "Attempting to email '$MailTo' about VM '$($Snapshot.VM)' snapshot '$($Snapshot.Name)', from '$MailFrom'."
+            Write-Debug "Body of message:"
+            Write-Debug "----------------"
+            Write-Debug $Body
+            Write-Debug "----------------"
             Send-MailMessage -To $MailTo -From $MailFrom -Subject $Subject -Body $Body -SmtpServer $SMTPRelay
         }
 
@@ -1701,7 +1718,7 @@ Created by: $($Snapshot.Creator)
         $Snapshots = Get-VM | Get-Snapshot | Where {$_.Created -lt ((Get-Date).AddDays(-$Retention))}
 
         foreach ($Snap in $Snapshots) {
-            $SnapshotInfo = Get-SnapshotInfo $Snap
+            $SnapshotInfo = Get-SnapshotExtra $Snap
             $MailTo = Find-OwnerEmail $SnapshotInfo.Creator
             Send-SnapshotMail $MailTo $SnapshotInfo
         }

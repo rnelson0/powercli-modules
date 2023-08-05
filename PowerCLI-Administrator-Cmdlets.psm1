@@ -1503,9 +1503,9 @@ function Deploy-Template
     			Get-OSCustomizationNICMapping -OSCustomizationSpec $Name | Set-OSCustomizationNICMapping -IPMode UseStaticIP -IPAddress $IP -SubNetMask $Netmask -DefaultGateway $DefaultGateway | Out-Null
             }
             New-VM -Name $Name -Template $Template -Datastore $Datastore -ResourcePool $Cluster -Location $Folder -OSCustomizationSpec $Name -RunAsync | Out-Null
-            $NextIP = $IP.Split(“.”)
+            $NextIP = $IP.Split(".")
             $NextIP[3] = [int]$NextIP[3]+1
-            $IP = $NextIP -Join“.”
+            $IP = $NextIP -Join"."
         }
 
         # Sleep for a short period to ensure tasks have time to start
@@ -1515,7 +1515,7 @@ function Deploy-Template
         For ($Count=1; $Count -le $Number; $Count++) {
             $Name = $Prefix + $Count
             While ((Get-VM $Name).Version -eq "Unknown") {
-				Write-Output “Waiting to start $Name”
+				Write-Output "Waiting to start $Name"
                 Start-Sleep -s 10
 			}
             Start-VM $Name
